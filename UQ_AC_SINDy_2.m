@@ -10,13 +10,13 @@ hill_n = 5;
 hill_P0 = 2.4;      
 N = 1900;
 
-load("C:\Users\nickj\MATLAB Drive\Sparse Dynamics SINDy\mRNA data\FH3mRNA_EXTRAP.mat");
-load("C:\Users\nickj\MATLAB Drive\Sparse Dynamics SINDy\Hes1 data\FH3hes1_EXTRAP.mat");
+load("C:mRNA data\FH3mRNA_EXTRAP.mat");
+load("C:Hes1 data\FH3hes1_EXTRAP.mat");
 
-load("C:\Users\nickj\MATLAB Drive\Sparse Dynamics SINDy\Hes1 data\hes1.mat")
-load("C:\Users\nickj\MATLAB Drive\Sparse Dynamics SINDy\Hes1 data\hes1time.mat")
-load("C:\Users\nickj\MATLAB Drive\Sparse Dynamics SINDy\mRNA data\mRNA.mat")
-load("C:\Users\nickj\MATLAB Drive\Sparse Dynamics SINDy\mRNA data\mRNAtime.mat")
+load("C:Hes1 data\hes1.mat")
+load("C:Hes1 data\hes1time.mat")
+load("C:mRNA data\mRNA.mat")
+load("C:mRNA data\mRNAtime.mat")
 
 t = (0:dt:15)';
 t_all = (0:dt:35)';
