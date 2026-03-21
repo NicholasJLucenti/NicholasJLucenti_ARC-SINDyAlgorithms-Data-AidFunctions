@@ -1,4 +1,4 @@
-clear; clc
+clear; close all;  clc
 addpath(genpath('.'));
 
 % ARC-SINDy Hyperparameters
@@ -16,22 +16,20 @@ hill_func    = @(p, k, n) 1 ./ (1 + (p./k).^n);
 load("FH3mRNA_EXTRAP.mat"); % Load x_data_source
 load("FH3hes1_EXTRAP.mat"); % Load y_data_source
 
-load("C:\Users\nickj\MATLAB Drive\Sparse Dynamics SINDy\Hes1 data\hes1.mat")
-load("C:\Users\nickj\MATLAB Drive\Sparse Dynamics SINDy\Hes1 data\hes1time.mat")
-load("C:\Users\nickj\MATLAB Drive\Sparse Dynamics SINDy\mRNA data\mRNA.mat")
-load("C:\Users\nickj\MATLAB Drive\Sparse Dynamics SINDy\mRNA data\mRNAtime.mat")
+load("C:Hes1 data\hes1.mat")
+load("C:Hes1 data\hes1time.mat")
+load("C:mRNA data\mRNA.mat")
+load("C:mRNA data\mRNAtime.mat")
 
 
 t     = (0:dt:15)';
 t_all = (0:dt:35)';
 
-% Generalizing Variable Names (M -> x, P -> y)
 x_data_all   = FH3mRNA_EXTRAP(:);
 y_data_all   = FH3hes1_EXTRAP(:);
 x_data       = x_data_all(1:3001);
 y_data       = y_data_all(1:3001);
 
-% Calculate Delayed State
 t_delay = t - tau;
 y_tau   = interp1(t, y_data, max(t_delay,0), 'linear');
 
@@ -50,14 +48,12 @@ dxdt = dxdt(1:N);
 dydt = dydt(1:N);
 Theta = Theta(1:N,:);
 
-%% --- NORMALIZATION ---
 colscale      = vecnorm(Theta,2,1); colscale(colscale==0) = 1;
 ThetaN        = Theta ./ colscale;
 targetScaleX  = norm(dxdt, 2);
 targetScaleY  = norm(dydt, 2);
 dSdtN         = [dxdt / targetScaleX, dydt / targetScaleY];
 
-%% --- ITERATIVE SPARSE REGRESSION (SINDy + UQ) ---
 n = 2;
 XiN = ThetaN \ dSdtN; % Initial LS
 
@@ -154,31 +150,27 @@ for k = 1:10
     end
 end
 
-%% --- DENORMALIZATION ---
 Xi = zeros(size(XiN));
 Xi(:,1) = (XiN(:,1) * targetScaleX) ./ colscale';
 Xi(:,2) = (XiN(:,2) * targetScaleY) ./ colscale';
 
-%% --- FORWARD INTEGRATION (VALIDATION) ---
+% FORWARD INTEGRATION 
 XiX = Xi(:, 1); XiY = Xi(:, 2);
 x_id = zeros(size(x_data_all)); x_id(1) = x_data(1);
 y_id = zeros(size(y_data_all)); y_id(1) = y_data(1);
 
-% Delay offset function
 offset_val = Xi(end,1); 
 offset_fun = @(tt) ((tt <= tau) .* (offset_val*tt - offset_val));
 
 for k = 2:length(t_all)
     x_prev = x_id(k-1); y_prev = y_id(k-1);
     
-    % Delay handling
     if k <= round(tau/dt)+1
         y_tau_k = interp1(t, y_data, max(t_all(k)-tau, 0), 'linear');
     else
         y_tau_k = y_id(k - round(tau/dt));
     end
     
-    % Use interchangeable Hill function
     H_k = hill_func(y_tau_k, hill_k0, hill_n);
     
     phi = [polyRow_gen(x_prev, y_prev, polyorder), H_k];
@@ -187,7 +179,7 @@ for k = 2:length(t_all)
     y_id(k) = y_prev + dt * (phi * XiY);
 end
 
-%% --- HELPER FUNCTIONS ---
+%% HELPER FUNCTIONS 
 function Theta = polyLib_gen(x, y, n)
     Theta = ones(size(x));
     for k = 1:n, Theta = [Theta, x.^k]; end
@@ -230,12 +222,7 @@ disp(Xi)
 %% =====================================================
 
 
-%% ============================================================
-%  MONTE CARLO UNCERTAINTY PROPAGATION
-%  Draws samples from posterior N(Xi, Xi_var_phys) and integrates
-% =============================================================
 
-%% --- Denormalize Variance to Physical Space ---
 Xi_var_phys = XiN_var .* ([targetScaleX, targetScaleY] ./ colscale').^2;
 
 n_samples = 200;   % number of Monte Carlo draws
@@ -243,11 +230,10 @@ nT        = length(t_all);
 X_mc      = zeros(nT, n_samples);
 Y_mc      = zeros(nT, n_samples);
 
-rng(42);  % reproducibility
+rng(42);  
 
 for s = 1:n_samples
 
-    % --- Sample coefficients from posterior ---
     Xi_s = zeros(size(Xi));
     for col = 1:2
         for row = 1:size(Xi,1)
@@ -259,7 +245,7 @@ for s = 1:n_samples
     XiX_s = Xi_s(:,1);
     XiY_s = Xi_s(:,2);
 
-    % --- Forward integrate this sample ---
+    % forward integration loop
     x_s = zeros(nT,1);  x_s(1) = x_data(1);
     y_s = zeros(nT,1);  y_s(1) = y_data(1);
 
@@ -282,7 +268,6 @@ for s = 1:n_samples
         x_s(k) = x_prev + dt*(phi*XiX_s + offset_fun_s(t_all(k)));
         y_s(k) = y_prev + dt*(phi*XiY_s);
 
-        % Clamp to prevent blow-up
         x_s(k) = max(-20, min(x_s(k), 20));
         y_s(k) = max(-20, min(y_s(k), 20));
     end
@@ -291,7 +276,6 @@ for s = 1:n_samples
     Y_mc(:,s) = y_s;
 end
 
-% --- Compute quantile envelope ---
 prct  = [5, 95];
 X_env = prctile(X_mc, prct, 2);
 Y_env = prctile(Y_mc, prct, 2);
@@ -301,9 +285,6 @@ Y_low = Y_env(:,1);  Y_high = Y_env(:,2);
 
 X_med = median(X_mc, 2);
 Y_med = median(Y_mc, 2);
-%% ============================================================
-%  FIGURE 1 — Monte Carlo Trajectory Envelopes
-% =============================================================
 
 figure('Color','w','Name','UQ-SINDy Monte Carlo Envelopes');
 tiledlayout(2,1,'TileSpacing','compact','Padding','compact');
@@ -312,11 +293,9 @@ axStyle = @(ax) set(ax, ...
     'Color','w','XColor','k','YColor','k', ...
     'FontSize',9,'LineWidth',1,'TickDir','out');
 
-% ====== SET AXIS WINDOWS ======
 x_lim_mc = [0, 12];
 y_lim_M   = [-0.5,  7];
 y_lim_P   = [-0.5, 13];
-% ==============================
 
 % --- mRNA ---
 ax1 = nexttile;
@@ -355,9 +334,7 @@ xlim(ax2, x_lim_mc); ylim(ax2, y_lim_P);
 axStyle(ax2); box(ax2,'off'); grid(ax2,'off');
 hold off;
 
-%% ============================================================
-%  FIGURE 2 — Bayesian Posterior Distributions
-% =============================================================
+% Bayesian Posterior Distributions
 Xi_phys = Xi;
 names = {'Constant','M','M^2','P','P^2','Hill(P)'};
 
@@ -368,10 +345,8 @@ colors1 = lines(length(names)) * 0.65;
 eqTitles = {'Hes1 mRNA','Hes1 Protein'};
 eqLabels  = {'M','P'};
 
-% ====== SET AXIS WINDOWS ======
 x_lim_pdf = {[-2.1,  17],  [-5,  3]};   % {mRNA, Protein}
 y_lim_pdf = {[ 0, 10],  [ 0, 10]};
-% ==============================
 
 for ind = 1:2
 
@@ -413,9 +388,7 @@ for ind = 1:2
     hold off;
 end
 
-%% ============================================================
-%  FIGURE — SINDy Identified Model Trajectories
-% =============================================================
+%  SINDy Identified Model Trajectories
 
 figure('Color','w','Name','ARC-SINDy Identified Model');
 tiledlayout(2,1,'TileSpacing','compact','Padding','compact');
@@ -424,11 +397,9 @@ axStyle = @(ax) set(ax, ...
     'Color','w','XColor','k','YColor','k', ...
     'FontSize',9,'LineWidth',1,'TickDir','out');
 
-% ====== SET AXIS WINDOWS ======
 x_lim_id = [0, 20];
 y_lim_Mx  = [-0.5,  7];
 y_lim_Py  = [-0.5, 13];
-% ==============================
 
 % --- mRNA ---
 ax1 = nexttile;
@@ -440,7 +411,7 @@ plot(t_all, x_id,       'b--', 'LineWidth',1.8, 'DisplayName','ARC-SINDy Model')
 plot(mRNAtime, mRNA, 'ko','LineWidth',0.5, 'DisplayName','Observed Data')
 title('Hes1 mRNA — SINDy Identified Trajectory','FontSize',9,'Color','k');
 ylabel('Hes1 mRNA Concentration (\mug/\muL)','FontSize',9);
-leg1 = legend('Location','northeastoutside','FontSize',9,'Box','on');
+leg1 = legend('Location','northeast','FontSize',9,'Box','on');
 set(leg1,'TextColor','k','Color','w','EdgeColor','k');
 xlim(ax1, x_lim_id); ylim(ax1, y_lim_Mx);
 axStyle(ax1); box(ax1,'off'); grid(ax1,'off');
@@ -457,7 +428,7 @@ plot(hes1time, hes1, 'ko','LineWidth',0.5, 'DisplayName','Observed Data')
 title('Hes1 Protein — SINDy Identified Trajectory','FontSize',9,'Color','k');
 xlabel('Time (h)','FontSize',9);
 ylabel('Hes1 Protein Concentration (\mug/\muL)','FontSize',9);
-leg2 = legend('Location','northeastoutside','FontSize',9,'Box','on');
+leg2 = legend('Location','northeast','FontSize',9,'Box','on');
 set(leg2,'TextColor','k','Color','w','EdgeColor','k');
 xlim(ax2, x_lim_id); ylim(ax2, y_lim_Py);
 axStyle(ax2); box(ax2,'off'); grid(ax2,'off');
